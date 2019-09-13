@@ -52,16 +52,19 @@ StorageClassオブジェクトで指定したプロビジョナを使用し、�
 
 StorageClassには様々なパラメータを指定することができアプリケーションに適したストレージカタログ、プロファイルを作成することができ、物理的なストレージを抽象化するレイヤとなります。
 
+Dynamic Provisioningを実現するために ストレージを制御する Provisioner
+が必要になります。その標準的なインターフェースとして 2019/1からContainer Storage InterfaceがGAになり、
+Kubernetes 1.14からは CSI 1.1がサポートされています。
+
 ネットアップはDynamic provisioningを実現するためのNetApp Tridentというprovisionerを提供しています。
+
+Tridentは CSIを使わない従来同様のTridentと CSIを使う CSI Tridentが提供されていますが、
+19.07からは CSI Tridentがデフォルトでインストールされるようになりました。
 
 このレベルではTridentでDynamic provisioningを行い、アプリケーションのデータ永続化を実現します。
 
-
-NetApp Tridentのインストール
-=============================================================
-
-Dynamic storage provisioningを実現するためNetApp Tridentを導入します。
-TridentはPodとしてデプロイされ通常のアプリケーションと同様に稼働します。
+..  NetApp Tridentのインストール
+    ============================
 
 .. include:: trident-install.rst
 
@@ -70,7 +73,7 @@ StorageClassの定義
 
 StorageClassを定義して、ストレージのサービスカタログを作りましょう。
 
-Trident v18.07 ではStorageClassを作成するときに以下の属性を設定できます。
+Trident v19.07 ではStorageClassを作成するときに以下の属性を設定できます。
 これらの属性のパラメータを組み合わせてストレージサービスをデザインします。
 
 .. list-table:: StorageClass の parameters に設定可能な属性
@@ -87,7 +90,7 @@ Trident v18.07 ではStorageClassを作成するときに以下の属性を設�
 
 全てのパラメータ設定については以下のURLに記載があります。
 
-* https://netapp-trident.readthedocs.io/en/stable-v18.07/kubernetes/concepts/objects.html#kubernetes-storageclass-objects
+* https://netapp-trident.readthedocs.io/en/stable-v19.07/kubernetes/concepts/objects.html#kubernetes-storageclass-objects
 
 NFSバックエンドのONTAPでのStorageClass
 ----------------------------------------------------------------
@@ -168,7 +171,7 @@ PVCを作成時に独自の機能を有効化することができます。
 一覧については以下のURLに記載があります。
 ``metadata.annotation`` 配下に記述することで様々な機能を使用することが可能となります。
 
-* https://netapp-trident.readthedocs.io/en/stable-v19.01/kubernetes/concepts/objects.html#kubernetes-persistentvolumeclaim-objects
+* https://netapp-trident.readthedocs.io/en/stable-v19.07/kubernetes/concepts/objects.html#kubernetes-persistentvolumeclaim-objects
 
 デプロイ用のマニフェストファイルにPVCを追加
 =============================================================
@@ -264,21 +267,28 @@ DeploymentによってPodの起動数は管理されるため新たにPodが起�
     3 entries were displayed.
 
 
-Tridentの特徴的な機能: Fast Cloning
+Tridentの特徴的な機能: Volume Cloningのストレージオフロード
 =============================================================
 
-Tridentには特徴的な機能であるクローニングの機能が存在します。
+NetAppのストレージOSは FlexCloneや Cloneと呼ばれるストレージオフロード可能な、
+高速データ複製機能＝クローニングテクノロジーを利用できます。[#license]_
 
-**巨大なボリュームでも容量消費せずに超高速にデータをコピーする** クローニングテクノロジーがkubernetesでも使用可能となります。
+CSI Tridentでは PersistentVolumeClaimの dataSourceにコピー元となる PVC/Snapshotを指定する事で
+**巨大なボリュームでも容量消費せずに超高速にデータをコピーする** クローニングテクノロジーが使用されます。
 
-ユーザーが既存のボリュームを複製することによって新しいボリュームをプロビジョニングできる機能を提供しています。
-PVCアノテーションである、``trident.netapp.io/cloneFromPVC`` を介してクローン機能を利用できます。
+kindにデータソースの種類(VolumeSnapshot/PersistentVolumeClaim)とnameにデータソースの名前を指定します。
+
+.. literalinclude:: resources/sample-csidatasource.yaml
+    :language: yaml
+    :caption: CSI Trident- dataSourceを持つPVCの例 csidatasource.yml
+
+従来の Tridentでも、PVCアノテーションである、``trident.netapp.io/cloneFromPVC`` を介してクローニングテクノロジーを利用できます。
 
 引数にPVC名を指定します。
 
 .. literalinclude:: resources/sample-pvccloning.yaml
     :language: yaml
-    :caption: クローニングのマニフェストファイルの例 pvccloning.yml
+    :caption: Trident- アノテーションを持ったPVCの例 pvccloning.yml
 
 
 ここではサンプルでPVC Cloning を活用したOracle Databaseを複数デプロイするデモ動画をご覧ください。
@@ -288,7 +298,7 @@ PVCアノテーションである、``trident.netapp.io/cloneFromPVC`` を介し
    <iframe width="760" height="500" src="https://www.youtube.com/embed/6X7p8_G9ucY" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 
 
-
+.. [#license] 必要な機能が利用できるモデル／ライセンスである事をご確認ください。
 
 クローニング技術によって実現可能なこと
 ---------------------------------------------------------------
@@ -300,23 +310,23 @@ PVCアノテーションである、``trident.netapp.io/cloneFromPVC`` を介し
 * 本番環境に影響せずに大規模な並列テスト
 * 運用時のデータリストアの高速化、瞬時に論理障害を戻す
 
-Tridentの18.07でのアップデート: CSI (Container Storage Interface)への対応
-=========================================================================
-
-最新のTridentではCSIモードでのデプロイが可能となっています。(インストール時に ``--csi`` を付与する）
-CSIは仕様自体がまだαステージということもあり実験的なモードですが、いち早くCSIをお試しいただくことが可能となっています。
-
-
-- Trident CSI モードでの動作：https://netapp-trident.readthedocs.io/en/latest/kubernetes/trident-csi.html
-- Trident CSI に書かれた記事: https://netapp.io/2018/07/03/netapp-trident-and-the-csi-oh-my/
-
-CSI自体についてはこちら
-- https://kubernetes.io/blog/2018/01/introducing-container-storage-interface/
-
-.. note::
-
-    理論的にはCSIの仕様でドライバを実装すれば、そのドライバはkubernetes、Mesos, Docker, Cloud Foundryなど
-    CSIを実装したコンテナオーケストレーターから使用できるようになります。
+.. Tridentの18.07でのアップデート: CSI (Container Storage Interface)への対応
+.. =========================================================================
+..
+.. 最新のTridentではCSIモードでのデプロイが可能となっています。(インストール時に ``--csi`` を付与する）
+.. CSIは仕様自体がまだαステージということもあり実験的なモードですが、いち早くCSIをお試しいただくことが可能となっています。
+..
+..
+.. - Trident CSI モードでの動作：https://netapp-trident.readthedocs.io/en/latest/kubernetes/trident-csi.html
+.. - Trident CSI に書かれた記事: https://netapp.io/2018/07/03/netapp-trident-and-the-csi-oh-my/
+..
+.. CSI自体についてはこちら
+.. - https://kubernetes.io/blog/2018/01/introducing-container-storage-interface/
+..
+.. .. note::
+..
+..     理論的にはCSIの仕様でドライバを実装すれば、そのドライバはkubernetes、Mesos, Docker, Cloud Foundryなど
+..     CSIを実装したコンテナオーケストレーターから使用できるようになります。
 
 Tridentのアップグレード方法
 =============================================================
@@ -328,7 +338,7 @@ kubernetesのバージョンにサポートの有無があります。
 
 バージョンに対応したTridentを確認するには以下のページを参照ください。
 
-https://netapp-trident.readthedocs.io/en/stable-v19.01/support/requirements.html
+https://netapp-trident.readthedocs.io/en/stable-v19.07/support/requirements.html
 
 すでにインストールされているTridentをアップグレードするには以下のようにアンインストール、インストールをくりかえすことで実現できます。
 
@@ -340,6 +350,18 @@ https://netapp-trident.readthedocs.io/en/stable-v19.01/support/requirements.html
 
 アンインストールコマンドのデフォルトの挙動はTridentでデプロイされたPVC,PVは削除しません。
 Tridentの状態をそのままにしているため、アンインストール後にインストールをすることでアップグレードとして機能させることができます。
+
+Tridentアップグレード時の注意
+-------------------------------------------------------------
+
+アップグレード時に Kubernetesのバージョンによっては考慮が必要な場合があります。
+
+また、19.07では etcdから CRDへと Tridentの構成情報の記録場所が変更になったため、アップグレード時には、そのコピーが行われます。
+
+アップグレード中の動作等、詳細は下記のアップグレードについてのオフィシャルドキュメントを参照してください。
+
+https://netapp-trident.readthedocs.io/en/stable-v19.07/kubernetes/upgrading.html
+
 
 まとめ
 =============================================================
